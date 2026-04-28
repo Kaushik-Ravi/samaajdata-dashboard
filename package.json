@@ -1,0 +1,40 @@
+{
+  "name": "react",
+  "version": "0.0.0",
+  "private": true,
+  "dependencies": {
+    "@emotion/is-prop-valid": "^1.4.0",
+    "clsx": "^2.1.1",
+    "framer-motion": "^12.38.0",
+    "html2canvas": "^1.4.1",
+    "leaflet": "^1.9.4",
+    "leaflet.markercluster": "^1.5.3",
+    "lucide-react": "^1.11.0",
+    "react": "18.1.0",
+    "react-confetti": "^6.4.0",
+    "react-dom": "18.1.0",
+    "react-leaflet": "^4.2.1",
+    "tailwind-merge": "^3.5.0"
+  },
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "react-scripts build",
+    "test": "react-scripts test --env=jsdom",
+    "eject": "react-scripts eject"
+  },
+  "devDependencies": {
+    "react-scripts": "latest"
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  }
+}

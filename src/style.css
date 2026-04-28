@@ -1,0 +1,51 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body,
+html,
+#root {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: #050505;
+  font-family: 'Inter', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: -0.01em;
+}
+
+/* Stripe-inspired Glassmorphism */
+.glass-panel {
+  background: rgba(12, 12, 12, 0.7);
+  backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.8);
+}
+
+.leaflet-container {
+  background: #050505 !important;
+}
+
+/* Hide Map UI for clean enterprise look */
+.leaflet-control-zoom,
+.leaflet-control-attribution {
+  display: none !important;
+}
+
+/* Micro-engagement for search */
+input::placeholder {
+  transition: opacity 0.2s ease;
+}
+
+input:focus::placeholder {
+  opacity: 0.3;
+}
+
+/* Custom Scrollbar for the filter bar if it overflows on mobile */
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
