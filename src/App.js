@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import API_BASE from './config';
 import {
   Search,
   ChevronRight,
@@ -35,9 +36,8 @@ import {
   AlertTriangle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import L from 'leaflet';
-import 'leaflet.markercluster';
-import 'leaflet.markercluster/dist/MarkerCluster.css';
+import maplibregl from 'maplibre-gl';
+import 'maplibre-gl/dist/maplibre-gl.css';
 import { renderToString } from 'react-dom/server';
 import AreaIntelligence from './components/AreaIntelligence';
 import ActionEngine from './components/ActionEngine';
@@ -46,8 +46,8 @@ import OmniSearch from './components/OmniSearch';
 import CivicAssistant from './components/CivicAssistant';
 import UserProfile from './components/UserProfile';
 
-const PRIMARY_FILTERS = ['Air', 'Water', 'Safety', 'Deforestation', 'Garbage'];
-const SECONDARY_FILTERS = ['Stubble Burning', 'Lake Polluted', 'Noise Pollution', 'Illegal Parking', 'Encroachment'];
+const PRIMARY_FILTERS = ['Trees', 'Toilets', 'Health', 'Air', 'Water'];
+const SECONDARY_FILTERS = ['Safety', 'Deforestation', 'Garbage', 'Stubble Burning', 'Lake Polluted', 'Noise Pollution', 'Illegal Parking', 'Encroachment'];
 
 const ISSUE_CONFIG = {
   'Air': { icon: Cloud, color: '#64748b' },
@@ -60,6 +60,14 @@ const ISSUE_CONFIG = {
   'Noise Pollution': { icon: VolumeX, color: '#a855f7' },
   'Illegal Parking': { icon: Car, color: '#52525b' },
   'Encroachment': { icon: MapIcon, color: '#be123c' },
+  // DB Categories mapping
+  'Public Infra': { icon: MapPin, color: '#64748b' },
+  'Mock Issues': { icon: AlertCircle, color: '#f59e0b' },
+  'Climate': { icon: Cloud, color: '#10b981' },
+  'Trees': { icon: TreePine, color: '#10b981' },
+  'Toilets': { icon: Sparkles, color: '#3b82f6' },
+  'Health': { icon: ShieldAlert, color: '#ef4444' },
+  'Incidents': { icon: AlertTriangle, color: '#ef4444' }
 };
 
 const THREAT_LEVELS = ['High', 'Critical', 'Moderate', 'Low'];
@@ -150,7 +158,7 @@ const NINJAS = [
   { id: 24, name: 'Nidhi', lat: 12.9148, lng: 77.5840, img: 'https://i.pravatar.cc/100?u=a24', ward: 'JP Nagar' },
   { id: 25, name: 'Sanjay', lat: 12.9068, lng: 77.5880, img: 'https://i.pravatar.cc/100?u=a25', ward: 'JP Nagar' },
   { id: 26, name: 'Divya', lat: 12.9092, lng: 77.5835, img: 'https://i.pravatar.cc/100?u=a26', ward: 'Jayanagar' },
-  
+
   // Leaderboard Ninjas
   { id: 101, name: 'Arvind', lat: 12.9719, lng: 77.6412, img: 'https://i.pravatar.cc/100?u=a101', ward: 'Indiranagar' },
   { id: 102, name: 'Siddharth', lat: 12.9279, lng: 77.6271, img: 'https://i.pravatar.cc/100?u=a102', ward: 'Koramangala' },
@@ -183,6 +191,7 @@ export default function App() {
   const [activeFilters, setActiveFilters] = useState([]);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [selectedIssue, setSelectedIssue] = useState(null);
+  const [isLoadingIssue, setIsLoadingIssue] = useState(false);
   const [activeTab, setActiveTab] = useState('home');
   const [activeAreaIssues, setActiveAreaIssues] = useState([]);
   const [resolvedIssueIds, setResolvedIssueIds] = useState([]);
@@ -223,14 +232,16 @@ export default function App() {
   const handleSelectLocation = (result) => {
     const lat = parseFloat(result.lat);
     const lon = parseFloat(result.lon);
-    
+
     setSearchQuery(result.display_name);
     setShowSearchDropdown(false);
 
     if (mapInstance.current) {
-      mapInstance.current.flyTo([lat, lon], 16, {
-        animate: true,
-        duration: 1.5
+      // MapLibre flyTo syntax: center is [lng, lat] not [lat, lng]
+      mapInstance.current.flyTo({
+        center: [lon, lat],
+        zoom: 16,
+        duration: 1500
       });
     }
   };
@@ -238,15 +249,15 @@ export default function App() {
   const handleVerifyIssue = (category = null) => {
     const unresolvedIssues = activeAreaIssues.filter(issue => !resolvedIssueIds.includes(issue.id));
     let targetIssue = null;
-    
+
     if (category) {
       targetIssue = unresolvedIssues.find(issue => issue.type === category);
     }
-    
+
     if (!targetIssue && unresolvedIssues.length > 0) {
       targetIssue = unresolvedIssues[0];
     }
-    
+
     if (targetIssue) {
       setSelectedIssue(targetIssue);
       setActiveTab('problem');
@@ -254,9 +265,9 @@ export default function App() {
   };
 
   const toggleFilter = (filter) => {
-    setActiveFilters((prev) => 
-      prev.includes(filter) 
-        ? prev.filter((f) => f !== filter) 
+    setActiveFilters((prev) =>
+      prev.includes(filter)
+        ? prev.filter((f) => f !== filter)
         : [...prev, filter]
     );
   };
@@ -265,113 +276,449 @@ export default function App() {
 
   useEffect(() => {
     if (!mapInstance.current && mapRef.current) {
-      // Zoom 17: Street Level Precision
-      mapInstance.current = L.map(mapRef.current, {
-        center: [12.9105, 77.5852],
-        zoom: 17,
-        zoomControl: false,
-      });
-      L.tileLayer(
-        'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
-      ).addTo(mapInstance.current);
+      console.log('🌍 [SamaajData Telemetry] Initializing MapLibre Engine...');
 
-      markerClusterGroupRef.current = L.markerClusterGroup({
-        chunkedLoading: true,
-        showCoverageOnHover: false,
-        spiderfyOnMaxZoom: true,
-        maxClusterRadius: 50,
-        iconCreateFunction: function(cluster) {
-          const count = cluster.getChildCount();
-          const html = `
-            <div class="w-10 h-10 rounded-full bg-[#121212]/90 backdrop-blur-xl border border-zinc-700 flex items-center justify-center shadow-[0_10px_20px_rgba(0,0,0,0.8)] text-white font-bold text-sm tracking-tighter hover:border-zinc-500 transition-colors">
-              ${count}
-            </div>
-          `;
-          return L.divIcon({
-            html: html,
-            className: 'bg-transparent border-0',
-            iconSize: L.point(40, 40)
-          });
+      const rect = mapRef.current.getBoundingClientRect();
+      console.log(`📏 [SamaajData Telemetry] Map Container Dimensions: ${rect.width}px x ${rect.height}px`);
+
+      if (rect.width === 0 || rect.height === 0) {
+        console.error('🚨 [SamaajData Telemetry] FATAL: Map container has 0 width or height! The map will not render.');
+      }
+
+      mapInstance.current = new maplibregl.Map({
+        container: mapRef.current,
+        style: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
+        center: [77.5852, 12.9105],
+        zoom: 15,
+        pitch: 0,
+        maxZoom: 20 // 1% Google-Tier: Capped at crisp street level
+      });
+
+      // --- TEXTURE GENERATOR ENGINE ---
+      const generateTextures = (map) => {
+        const size = 64; // High-DPI texture size
+        const center = size / 2;
+        const radius = 28;
+
+        Object.entries(ISSUE_CONFIG).forEach(([category, config]) => {
+          const Icon = config.icon;
+          // Extract the raw SVG string from the Lucide component
+          const svgString = renderToString(<Icon size={32} color="#ffffff" strokeWidth={2.5} xmlns="http://www.w3.org/2000/svg" />);
+
+          const img = new Image();
+          const svgBase64 = btoa(unescape(encodeURIComponent(svgString)));
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = size;
+            canvas.height = size;
+            const ctx = canvas.getContext('2d');
+
+            // Outer white ring
+            ctx.beginPath();
+            ctx.arc(center, center, radius, 0, Math.PI * 2);
+            ctx.fillStyle = '#ffffff';
+            ctx.fill();
+
+            // Inner category color
+            ctx.beginPath();
+            ctx.arc(center, center, radius - 3, 0, Math.PI * 2);
+            ctx.fillStyle = config.color;
+            ctx.fill();
+
+            // Draw SVG icon in center
+            ctx.drawImage(img, center - 16, center - 16, 32, 32);
+
+            // Inject High-DPI Texture into WebGL
+            if (!map.hasImage(`icon-${category}`)) {
+              map.addImage(`icon-${category}`, ctx.getImageData(0, 0, size, size));
+            }
+          };
+          img.src = `data:image/svg+xml;base64,${svgBase64}`;
+        });
+
+        // Add a fallback default texture
+        const fallbackCanvas = document.createElement('canvas');
+        fallbackCanvas.width = size; fallbackCanvas.height = size;
+        const ctx = fallbackCanvas.getContext('2d');
+        ctx.beginPath(); ctx.arc(center, center, radius, 0, Math.PI * 2); ctx.fillStyle = '#ffffff'; ctx.fill();
+        ctx.beginPath(); ctx.arc(center, center, radius - 3, 0, Math.PI * 2); ctx.fillStyle = '#a855f7'; ctx.fill();
+        if (!map.hasImage('icon-default')) map.addImage('icon-default', ctx.getImageData(0, 0, size, size));
+      };
+
+      // Catch WebGL context or styling errors
+      mapInstance.current.on('error', (e) => {
+        console.error('🚨 [SamaajData Telemetry] MAP ENGINE ERROR:', e.error || e);
+      });
+
+      // Silently inject default icons for any unregistered categories to prevent console spam
+      mapInstance.current.on('styleimagemissing', (e) => {
+        const id = e.id;
+        const defaultImg = mapInstance.current.getImage('icon-default');
+        if (defaultImg) {
+          mapInstance.current.addImage(id, defaultImg.data);
         }
       });
-      mapInstance.current.addLayer(markerClusterGroupRef.current);
+
+      mapInstance.current.on('load', () => {
+        console.log('✅ [SamaajData Telemetry] Base map style loaded successfully. Injecting vector tiles...');
+
+        // Generate and inject textures immediately
+        generateTextures(mapInstance.current);
+
+        // Add In-Memory Supercluster Vector Source
+        mapInstance.current.addSource('samaaj_points', {
+          type: 'vector',
+          tiles: [`${API_BASE}/api/tiles/{z}/{x}/{y}?category=${activeFilters.length > 0 ? encodeURIComponent(activeFilters.join(',')) : 'all'}&v=${Date.now()}`],
+          minzoom: 0,
+          maxzoom: 20 // 1% Google-Tier: Match map max zoom
+        });
+
+        // Layer 1: Premium Shadow for Clusters
+        mapInstance.current.addLayer({
+          id: 'clusters-shadow',
+          type: 'circle',
+          source: 'samaaj_points',
+          'source-layer': 'samaaj_points',
+          filter: ['has', 'point_count'],
+          paint: {
+            'circle-color': '#000000',
+            'circle-radius': 24,
+            'circle-blur': 0.8,
+            'circle-opacity': 0.6,
+            'circle-translate': [0, 6] // Offset for true drop-shadow
+          }
+        });
+
+        // Layer 2: Premium Dark Clusters (Matches original DOM styling)
+        mapInstance.current.addLayer({
+          id: 'clusters',
+          type: 'circle',
+          source: 'samaaj_points',
+          'source-layer': 'samaaj_points',
+          filter: ['has', 'point_count'],
+          paint: {
+            'circle-color': '#121212', // Deep dark backdrop
+            'circle-radius': 22,
+            'circle-stroke-width': 1.5,
+            'circle-stroke-color': '#3f3f46', // zinc-700
+            'circle-opacity': 0.95
+          }
+        });
+
+        // Layer 3: Cluster Text
+        mapInstance.current.addLayer({
+          id: 'cluster-count',
+          type: 'symbol',
+          source: 'samaaj_points',
+          'source-layer': 'samaaj_points',
+          filter: ['has', 'point_count'],
+          layout: {
+            'text-field': '{point_count_abbreviated}',
+            'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
+            'text-size': 14,
+            'text-allow-overlap': true, // Forces numbers to NEVER be pushed off-center by MapLibre collision engine
+            'text-ignore-placement': true // Locks text to exact circle center
+          },
+          paint: {
+            'text-color': '#ffffff'
+          }
+        });
+
+        // Layer 4: High-Fidelity Unclustered Icons (using injected WebGL textures)
+        mapInstance.current.addLayer({
+          id: 'unclustered-point',
+          type: 'symbol',
+          source: 'samaaj_points',
+          'source-layer': 'samaaj_points',
+          filter: ['!', ['has', 'point_count']],
+          layout: {
+            'icon-image': [
+              'coalesce',
+              ['concat', 'icon-', ['get', 'category']],
+              'icon-default'
+            ],
+            'icon-size': 0.5,
+            'icon-allow-overlap': true,
+            'icon-pitch-alignment': 'map'
+          }
+        });
+
+        // --- SPIDERFY (BRANCH OUT) ENGINE ---
+        mapInstance.current.addSource('spider-legs', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+        mapInstance.current.addSource('spider-points', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+
+        mapInstance.current.addLayer({
+          id: 'spider-legs-layer',
+          type: 'line',
+          source: 'spider-legs',
+          paint: {
+            'line-color': '#ffffff',
+            'line-width': 2,
+            'line-opacity': 0.4
+          }
+        });
+
+        mapInstance.current.addLayer({
+          id: 'spider-points-layer',
+          type: 'symbol',
+          source: 'spider-points',
+          layout: {
+            'icon-image': [
+              'coalesce',
+              ['concat', 'icon-', ['get', 'category']],
+              'icon-default'
+            ],
+            'icon-size': 0.5,
+            'icon-allow-overlap': true,
+            'icon-pitch-alignment': 'map'
+          }
+        });
+
+        // Setup interactions
+        mapInstance.current.on('click', 'unclustered-point', async (e) => {
+          const props = e.features[0].properties;
+          const targetId = props.dp_id || props.id;
+
+          // GOOGLE TIER: Optimistic UI - open the panel immediately with a loading state
+          // User sees instant response (0ms), data fills in after the fast PK lookup (~5ms)
+          setIsLoadingIssue(true);
+          setSelectedIssue(null);
+          setActiveTab('problem');
+
+          try {
+            // NEW: Fast /api/point/:id endpoint - direct PK lookup, sub-5ms vs 4s sequential scan
+            const response = await fetch(`${API_BASE}/api/point/${targetId}`);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const data = await response.json();
+            setSelectedIssue(data);
+          } catch (err) {
+            console.error('[SamaajData] Failed to fetch point details:', err);
+            setToastMessage('Could not load point data. Try again.');
+            setTimeout(() => setToastMessage(null), 3000);
+            setActiveTab('home');
+          } finally {
+            setIsLoadingIssue(false);
+          }
+        });
+
+        const mapClickHandler = async (e) => {
+          const features = mapInstance.current.queryRenderedFeatures(e.point, {
+            layers: ['clusters']
+          });
+          if (features.length > 0) {
+            const clusterId = features[0].properties.cluster_id;
+            const centerCoords = features[0].geometry.coordinates;
+            const currentZoom = mapInstance.current.getZoom();
+
+            try {
+              // Google 1% Tier: Fetch the exact zoom level needed to break this cluster
+              // To avoid stale closures we can read from the global state, but in a React hook
+              // Without rebuilding the listeners, we need to extract from the source URL
+              const source = mapInstance.current.getSource('samaaj_points');
+              let activeCat = 'all';
+              if (source && source.tiles && source.tiles[0]) {
+                const url = new URL(source.tiles[0]);
+                activeCat = url.searchParams.get('category') || 'all';
+              }
+
+              const expRes = await fetch(`${API_BASE}/api/tiles/cluster/${clusterId}/expansionZoom?category=${encodeURIComponent(activeCat)}`);
+              if (!expRes.ok) {
+                // If cache mismatch or cluster lost, fallback to natural zoom
+                mapInstance.current.easeTo({ center: centerCoords, zoom: Math.min(currentZoom + 2, 20), duration: 500 });
+                return;
+              }
+              const expData = await expRes.json();
+              const expansionZoom = expData.expansionZoom;
+
+              // If the cluster breaks apart at a reasonable zoom, AND we aren't already there
+              if (expansionZoom <= 20 && currentZoom < expansionZoom) {
+                // Cinematic Zoom
+                mapInstance.current.easeTo({
+                  center: centerCoords,
+                  zoom: expansionZoom + 0.5, // Slightly past the breakpoint
+                  duration: 800
+                });
+              } else {
+                // We are at max zoom OR the points are literally stacked on the exact same coordinate.
+                // Deploy the Vogel Spiral Spiderfy!
+                const res = await fetch(`${API_BASE}/api/tiles/cluster/${clusterId}/leaves?category=${encodeURIComponent(activeCat)}`);
+                const allLeaves = await res.json();
+
+                // Visually cap at 30 to prevent UI chaos (Google style)
+                const maxLeaves = Math.min(allLeaves.length, 30);
+                const leaves = allLeaves.slice(0, maxLeaves);
+
+                const legs = [];
+                const points = [];
+
+                // Use MapLibre's screen-pixel projection so circles don't distort into ellipses at different latitudes
+                const centerPx = mapInstance.current.project(centerCoords);
+
+                leaves.forEach((leaf, i) => {
+                  let legLength, angle;
+
+                  if (leaves.length <= 8) {
+                    // Golden Circle for small clusters
+                    angle = (i / leaves.length) * Math.PI * 2;
+                    legLength = 45; // Fixed pixel radius
+                  } else {
+                    // Mathematically Perfect Vogel Spiral for dense clusters
+                    const goldenAngle = 137.5 * (Math.PI / 180);
+                    angle = i * goldenAngle;
+                    // Sqrt scaling ensures perfectly uniform point density
+                    legLength = 30 + Math.sqrt(i + 1) * 12;
+                  }
+
+                  const targetPx = {
+                    x: centerPx.x + Math.cos(angle) * legLength,
+                    y: centerPx.y + Math.sin(angle) * legLength
+                  };
+
+                  // Cast pixel back to geographic coordinate
+                  const targetLngLat = mapInstance.current.unproject(targetPx);
+                  const targetCoords = [targetLngLat.lng, targetLngLat.lat];
+
+                  legs.push({
+                    type: 'Feature',
+                    geometry: { type: 'LineString', coordinates: [centerCoords, targetCoords] }
+                  });
+
+                  points.push({
+                    type: 'Feature',
+                    properties: leaf.properties,
+                    geometry: { type: 'Point', coordinates: targetCoords }
+                  });
+                });
+
+                mapInstance.current.getSource('spider-legs').setData({ type: 'FeatureCollection', features: legs });
+                mapInstance.current.getSource('spider-points').setData({ type: 'FeatureCollection', features: points });
+              }
+            } catch (err) {
+              console.error('Failed to process cluster click:', err);
+            }
+          }
+        };
+
+        // Cluster Click: Spiderfy or Zoom
+        mapInstance.current.on('click', 'clusters', mapClickHandler);
+
+        // Dynamic Clearing: If user zooms, pan, or clicks away, instantly clear the Spiderfy web
+        mapInstance.current.on('zoomstart', () => {
+          if (mapInstance.current.getSource('spider-legs')) {
+            mapInstance.current.getSource('spider-legs').setData({ type: 'FeatureCollection', features: [] });
+            mapInstance.current.getSource('spider-points').setData({ type: 'FeatureCollection', features: [] });
+          }
+        });
+
+        // Click outside clears spiderfy ring
+        mapInstance.current.on('click', (e) => {
+          const features = mapInstance.current.queryRenderedFeatures(e.point, { layers: ['clusters', 'spider-points-layer', 'unclustered-point'] });
+          if (features.length === 0) {
+            if (mapInstance.current.getSource('spider-legs')) {
+              mapInstance.current.getSource('spider-legs').setData({ type: 'FeatureCollection', features: [] });
+              mapInstance.current.getSource('spider-points').setData({ type: 'FeatureCollection', features: [] });
+            }
+          }
+        });
+
+        // Click handler for Spiderfy Points
+        mapInstance.current.on('click', 'spider-points-layer', async (e) => {
+          const props = e.features[0].properties;
+          const targetId = props.dp_id || props.id;
+
+          // GOOGLE TIER: Optimistic UI - open panel instantly, fill data when ready
+          setIsLoadingIssue(true);
+          setSelectedIssue(null);
+          setActiveTab('problem');
+
+          try {
+            const response = await fetch(`${API_BASE}/api/point/${targetId}`);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const data = await response.json();
+            setSelectedIssue(data);
+          } catch (err) {
+            console.error('[SamaajData] Failed to fetch spiderfy point:', err);
+            setActiveTab('home');
+          } finally {
+            setIsLoadingIssue(false);
+          }
+        });
+
+        const pointerEnters = () => { mapInstance.current.getCanvas().style.cursor = 'pointer'; };
+        const pointerLeaves = () => { mapInstance.current.getCanvas().style.cursor = ''; };
+
+        mapInstance.current.on('mouseenter', 'unclustered-point', pointerEnters);
+        mapInstance.current.on('mouseleave', 'unclustered-point', pointerLeaves);
+        mapInstance.current.on('mouseenter', 'clusters', pointerEnters);
+        mapInstance.current.on('mouseleave', 'clusters', pointerLeaves);
+        mapInstance.current.on('mouseenter', 'spider-points-layer', pointerEnters);
+        mapInstance.current.on('mouseleave', 'spider-points-layer', pointerLeaves);
+      });
 
       const updateContext = () => {
         const bounds = mapInstance.current.getBounds();
-        
+
         // Update Ninjas
-        const visibleNinjas = NINJAS.filter((n) => bounds.contains([n.lat, n.lng]));
+        const visibleNinjas = NINJAS.filter((n) =>
+          n.lng >= bounds.getWest() && n.lng <= bounds.getEast() &&
+          n.lat >= bounds.getSouth() && n.lat <= bounds.getNorth()
+        );
         setActiveNinjas(visibleNinjas);
 
-        // Update Area Issues
-        const visibleIssues = ISSUES.filter((i) => bounds.contains([i.lat, i.lng]));
-        setActiveAreaIssues(visibleIssues);
+        // Vector tiles handle area issues heavily on their own. We'll poll visible features
+        if (mapInstance.current.getSource('samaaj_points')) {
+          const features = mapInstance.current.queryRenderedFeatures({ layers: ['unclustered-point'] });
+
+          // Re-hydrate the mock issue structure for area intelligence module
+          const visibleIssues = features.map(f => {
+            return {
+              id: f.properties.id,
+              category: f.properties.category,
+              subcategory: f.properties.subcategory,
+              latitude: f.geometry.coordinates[1],
+              longitude: f.geometry.coordinates[0]
+            };
+          });
+
+          // Distinct issues only based on ID
+          const distinct = [];
+          const map = new Map();
+          for (const item of visibleIssues) {
+            if (!map.has(item.id)) { map.set(item.id, true); distinct.push(item); }
+          }
+          setActiveAreaIssues(distinct);
+        }
       };
 
-      mapInstance.current.on('move', updateContext);
-      setTimeout(updateContext, 100);
+      mapInstance.current.on('moveend', updateContext);
+      setTimeout(updateContext, 500);
     }
+
+    return () => {
+      if (mapInstance.current) {
+        mapInstance.current.remove();
+        mapInstance.current = null;
+      }
+    };
   }, []);
 
   // Surgical Sync of Civic Issues to Map Pins
   useEffect(() => {
-    if (!mapInstance.current || !markerClusterGroupRef.current) return;
+    if (!mapInstance.current || !mapInstance.current.isStyleLoaded()) return;
 
-    const visibleIssues = ISSUES.filter(issue => 
-      !resolvedIssueIds.includes(issue.id) && 
-      (activeFilters.length === 0 || activeFilters.includes(issue.type))
-    );
-    const visibleIds = visibleIssues.map(i => i.id);
-
-    // Remove hidden issues
-    Object.keys(issueMarkersRef.current).forEach((idStr) => {
-      const id = parseInt(idStr);
-      if (!visibleIds.includes(id)) {
-        markerClusterGroupRef.current.removeLayer(issueMarkersRef.current[idStr]);
-        delete issueMarkersRef.current[idStr];
-      }
-    });
-
-    // Render visible issues
-    visibleIssues.forEach((issue) => {
-      const isSelected = selectedIssue && selectedIssue.id === issue.id;
-      const config = ISSUE_CONFIG[issue.type];
-      const IconComponent = config.icon;
+    const source = mapInstance.current.getSource('samaaj_points');
+    if (source) {
+      const currentStyle = mapInstance.current.getStyle();
+      const newStyle = JSON.parse(JSON.stringify(currentStyle));
       
-      const baseClasses = "w-8 h-8 rounded-full border-[2.5px] border-white flex items-center justify-center text-white transition-all duration-300 cursor-pointer animate-pop";
-      const selectedClasses = isSelected ? "ring-4 ring-white/60 shadow-[0_0_20px_rgba(255,255,255,0.4)] scale-110" : "shadow-md hover:scale-110";
-
-      const iconHtml = renderToString(
-        <div style={{ backgroundColor: config.color }} className={`${baseClasses} ${selectedClasses}`}>
-          <IconComponent size={14} strokeWidth={2.5} />
-        </div>
-      );
-
-      const icon = L.divIcon({
-        className: `bg-transparent border-0 ${isSelected ? 'is-selected z-[1000]' : ''}`,
-        html: iconHtml,
-        iconSize: [32, 32],
-        iconAnchor: [16, 16],
-      });
-
-      let marker = issueMarkersRef.current[issue.id];
-
-      if (marker) {
-         const wasSelected = marker.options.icon.options.className.includes('is-selected');
-         if (isSelected !== wasSelected) {
-            marker.setIcon(icon);
-            marker.setZIndexOffset(isSelected ? 1000 : 0);
-         }
-      } else {
-        marker = L.marker([issue.lat, issue.lng], { icon, zIndexOffset: isSelected ? 1000 : 0 });
-        marker.on('click', () => {
-          setSelectedIssue(issue);
-          setActiveTab('problem');
-        });
-        markerClusterGroupRef.current.addLayer(marker);
-        issueMarkersRef.current[issue.id] = marker;
+      const filtersParam = activeFilters.length > 0 ? activeFilters.join(',') : 'all';
+      const newTilesUrl = `${API_BASE}/api/tiles/{z}/{x}/{y}?category=${encodeURIComponent(filtersParam)}&v=${Date.now()}`;
+      
+      if (newStyle.sources && newStyle.sources.samaaj_points) {
+        newStyle.sources.samaaj_points.tiles = [newTilesUrl];
+        mapInstance.current.setStyle(newStyle, { diff: true });
       }
-    });
+    }
 
   }, [activeFilters, selectedIssue, resolvedIssueIds]);
 
@@ -388,9 +735,11 @@ export default function App() {
 
   const panToRegion = (lat, lng) => {
     if (mapInstance.current) {
-      mapInstance.current.flyTo([lat, lng], 16, {
-        animate: true,
-        duration: 1.5
+      // MapLibre flyTo syntax: center is [lng, lat] (longitude first)
+      mapInstance.current.flyTo({
+        center: [lng, lat],
+        zoom: 16,
+        duration: 1500
       });
     }
   };
@@ -419,17 +768,17 @@ export default function App() {
                 <div className="absolute right-4 w-4 h-4 rounded-full border-2 border-emerald-500 border-t-transparent animate-spin" />
               )}
             </div>
-            
+
             <AnimatePresence>
               {showSearchDropdown && searchResults.length > 0 && (
-                <motion.div 
+                <motion.div
                   initial={{ opacity: 0, y: 5 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: 5 }}
                   className="absolute top-full left-0 right-0 mt-2 bg-[#121212] border border-zinc-800 rounded-lg shadow-2xl overflow-hidden py-1 max-h-64 overflow-y-auto [&::-webkit-scrollbar]:hidden"
                 >
                   {searchResults.map((res, idx) => (
-                    <div 
+                    <div
                       key={idx}
                       onClick={() => handleSelectLocation(res)}
                       className="px-4 py-2.5 hover:bg-zinc-800/50 cursor-pointer flex flex-col gap-0.5 border-b border-zinc-800/50 last:border-0 transition-colors"
@@ -449,7 +798,7 @@ export default function App() {
             <div className="flex flex-col items-end hidden sm:flex pr-1">
               <div className="flex items-center gap-1.5 mb-0.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                <span className="text-[10px] font-bold text-emerald-500 uppercase tracking-widest leading-none">Active Taskforce</span>
+                <span className="text-[10px] font-bold text-emerald-500 uppercase tracking-widest leading-none">Active Ninjas</span>
               </div>
               <span className="text-[10px] text-zinc-500 font-medium leading-none">In current viewport</span>
             </div>
@@ -465,11 +814,10 @@ export default function App() {
                   >
                     <img
                       src={ninja.img}
-                      className={`w-10 h-10 rounded-full border-[3px] border-black ring-2 transition-all duration-300 ${
-                        selectedIds.includes(ninja.id)
+                      className={`w-10 h-10 rounded-full border-[3px] border-black ring-2 transition-all duration-300 ${selectedIds.includes(ninja.id)
                           ? 'ring-white scale-110 shadow-lg shadow-white/20'
                           : 'ring-zinc-800 group-hover:ring-zinc-500'
-                      }`}
+                        }`}
                     />
                     {selectedIds.includes(ninja.id) && (
                       <motion.div
@@ -514,9 +862,9 @@ export default function App() {
               animate={{ opacity: 1, x: 0 }}
               className="flex items-center gap-3 bg-zinc-900 border border-zinc-800 pl-2 pr-4 py-1.5 rounded-full hover:bg-zinc-800 transition-colors cursor-pointer shadow-sm hover:shadow-md"
             >
-              <img 
-                src="https://i.pravatar.cc/150?u=admin_arjun" 
-                alt="Profile" 
+              <img
+                src="https://i.pravatar.cc/150?u=admin_arjun"
+                alt="Profile"
                 className="w-7 h-7 rounded-full border border-zinc-700 object-cover"
               />
               <span className="text-xs font-bold text-zinc-300 tracking-wide">
@@ -537,7 +885,7 @@ export default function App() {
       <main className="flex-1 flex overflow-hidden">
         {/* --- THIN SIDEBAR (GLOBAL NAVIGATION) --- */}
         <aside className="relative w-[64px] border-r border-zinc-800 bg-[#0A0A0A] flex flex-col items-center py-6 gap-8 z-[2000] shrink-0">
-          <button 
+          <button
             onClick={() => setActiveTab('home')}
             className={`p-2 rounded-lg transition-colors relative group ${activeTab === 'home' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
           >
@@ -547,7 +895,7 @@ export default function App() {
             </span>
           </button>
           <div className="flex flex-col gap-6 items-center">
-            <button 
+            <button
               onClick={() => setActiveTab('area')}
               className={`p-2 rounded-lg transition-colors relative group ${activeTab === 'area' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
             >
@@ -556,7 +904,7 @@ export default function App() {
                 Explore Map
               </span>
             </button>
-            <button 
+            <button
               onClick={() => setActiveTab('problem')}
               className={`p-2 rounded-lg transition-colors relative group ${activeTab === 'problem' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
             >
@@ -565,7 +913,7 @@ export default function App() {
                 Reported Issues
               </span>
             </button>
-            <button 
+            <button
               onClick={() => setActiveTab('people')}
               className={`p-2 rounded-lg transition-colors relative group ${activeTab === 'people' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
             >
@@ -574,7 +922,7 @@ export default function App() {
                 Community Taskforce
               </span>
             </button>
-            <button 
+            <button
               onClick={() => setActiveTab('assistant')}
               className={`p-2 rounded-lg transition-colors relative group ${activeTab === 'assistant' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.15)]' : 'text-zinc-500 hover:text-emerald-400/80 hover:bg-emerald-500/5'}`}
             >
@@ -584,7 +932,7 @@ export default function App() {
               </span>
             </button>
             <div className="w-8 h-px bg-zinc-800 my-2" />
-            <button 
+            <button
               onClick={() => setActiveTab('profile')}
               className={`p-2 rounded-lg transition-colors relative group ${activeTab === 'profile' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
             >
@@ -600,7 +948,7 @@ export default function App() {
         <section className="w-[380px] border-r border-zinc-800 bg-[#121212] flex flex-col z-[1000] shrink-0 overflow-hidden relative">
           <AnimatePresence mode="wait">
             {activeTab === 'home' && (
-              <motion.div 
+              <motion.div
                 key="tab-home"
                 initial={{ opacity: 0, x: -20 }}
                 animate={{ opacity: 1, x: 0 }}
@@ -621,18 +969,18 @@ export default function App() {
             )}
 
             {activeTab === 'area' && (
-              <AreaIntelligence 
-                activeAreaIssues={activeAreaIssues} 
-                ISSUE_CONFIG={ISSUE_CONFIG} 
-                setActiveFilters={setActiveFilters} 
+              <AreaIntelligence
+                activeAreaIssues={activeAreaIssues}
+                ISSUE_CONFIG={ISSUE_CONFIG}
+                setActiveFilters={setActiveFilters}
                 panToRegion={panToRegion}
                 onVerifyIssue={handleVerifyIssue}
                 resolvedIssueIds={resolvedIssueIds}
               />
             )}
 
-            {activeTab === 'problem' && !selectedIssue && (
-              <motion.div 
+            {activeTab === 'problem' && !selectedIssue && !isLoadingIssue && (
+              <motion.div
                 key="tab-problem-empty"
                 initial={{ opacity: 0, x: -20 }}
                 animate={{ opacity: 1, x: 0 }}
@@ -650,20 +998,65 @@ export default function App() {
               </motion.div>
             )}
 
+            {/* GOOGLE TIER: Optimistic Skeleton Loader — appears the millisecond user clicks a marker */}
+            {activeTab === 'problem' && isLoadingIssue && !selectedIssue && (
+              <motion.div
+                key="tab-problem-skeleton"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.15 }}
+                className="flex flex-col h-full absolute inset-0 bg-[#121212] z-10 overflow-hidden"
+              >
+                {/* Skeleton Image */}
+                <div className="w-full h-64 bg-zinc-900 shrink-0 relative overflow-hidden">
+                  <div className="absolute inset-0 bg-gradient-to-r from-zinc-900 via-zinc-800 to-zinc-900 animate-[shimmer_1.5s_ease-in-out_infinite]" style={{ backgroundSize: '200% 100%' }} />
+                  {/* Loading indicator overlay */}
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="w-8 h-8 rounded-full border-2 border-zinc-700 border-t-white animate-spin opacity-60" />
+                  </div>
+                </div>
+                {/* Skeleton Content */}
+                <div className="p-6 flex flex-col gap-5">
+                  <div className="flex flex-col gap-2">
+                    <div className="h-7 w-3/4 bg-zinc-800 rounded-lg animate-pulse" />
+                    <div className="h-4 w-full bg-zinc-900 rounded-lg animate-pulse" />
+                    <div className="h-4 w-2/3 bg-zinc-900 rounded-lg animate-pulse" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="h-20 bg-zinc-900/60 border border-zinc-800 rounded-2xl animate-pulse" />
+                    <div className="h-20 bg-zinc-900/60 border border-zinc-800 rounded-2xl animate-pulse" />
+                  </div>
+                  <div className="flex flex-col gap-3">
+                    <div className="h-4 w-1/2 bg-zinc-900 rounded animate-pulse" />
+                    <div className="h-16 bg-zinc-900/40 border border-emerald-900/20 rounded-2xl animate-pulse" />
+                    <div className="h-16 bg-zinc-900/40 border border-indigo-900/20 rounded-2xl animate-pulse" />
+                    <div className="h-16 bg-zinc-900/40 border border-amber-900/20 rounded-2xl animate-pulse" />
+                  </div>
+                </div>
+                <style>{`
+                  @keyframes shimmer {
+                    0% { background-position: 200% 0; }
+                    100% { background-position: -200% 0; }
+                  }
+                `}</style>
+              </motion.div>
+            )}
+
             {activeTab === 'problem' && selectedIssue && (
-              <ActionEngine 
-                selectedIssue={selectedIssue} 
+              <ActionEngine
+                selectedIssue={selectedIssue}
                 closeCard={() => {
                   setSelectedIssue(null);
                   setActiveTab('home');
-                }} 
-                ISSUE_CONFIG={ISSUE_CONFIG} 
+                }}
+                ISSUE_CONFIG={ISSUE_CONFIG}
                 onActionComplete={(id) => setResolvedIssueIds(prev => [...prev, id])}
               />
             )}
 
             {activeTab === 'people' && (
-              <NinjaTaskforce 
+              <NinjaTaskforce
                 isLoggedIn={isLoggedIn}
                 setShowLogin={setShowLogin}
                 activeNinjas={activeNinjas}
@@ -671,7 +1064,7 @@ export default function App() {
             )}
 
             {activeTab === 'assistant' && (
-              <CivicAssistant 
+              <CivicAssistant
                 initialQuery={pendingQuery}
                 panToRegion={panToRegion}
               />
@@ -684,36 +1077,34 @@ export default function App() {
         </section>
 
         {/* --- MAP ENGINE --- */}
-        <div className="flex-1 relative bg-[#0A0A0A] z-0">
-          <div ref={mapRef} className="absolute inset-0 z-0" />
-          
+        <div className="flex-1 relative bg-[#0A0A0A] z-0" style={{ width: '100%', height: '100%' }}>
+          <div ref={mapRef} className="absolute inset-0 z-0" style={{ width: '100%', height: '100%', display: 'block' }} />
+
           {/* Map Filters Overlay */}
           <div className="absolute top-6 left-6 z-[400] flex items-center gap-2">
             {PRIMARY_FILTERS.map((filter) => (
               <button
                 key={filter}
                 onClick={() => toggleFilter(filter)}
-                className={`px-4 py-2 rounded-full text-sm font-medium transition-colors border ${
-                  activeFilters.includes(filter)
+                className={`px-4 py-2 rounded-full text-sm font-medium transition-colors border ${activeFilters.includes(filter)
                     ? 'bg-zinc-100 text-zinc-900 border-zinc-100 shadow-md'
                     : 'bg-black/80 backdrop-blur-md text-zinc-300 border-zinc-700 hover:border-zinc-500 hover:bg-black'
-                }`}
+                  }`}
               >
                 {filter}
               </button>
             ))}
-            
+
             <div className="relative">
               <button
                 onClick={() => setDropdownOpen(!dropdownOpen)}
-                className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors border ${
-                  activeFilters.some(f => SECONDARY_FILTERS.includes(f)) || dropdownOpen
+                className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors border ${activeFilters.some(f => SECONDARY_FILTERS.includes(f)) || dropdownOpen
                     ? 'bg-zinc-800 text-zinc-100 border-zinc-600'
                     : 'bg-black/80 backdrop-blur-md text-zinc-300 border-zinc-700 hover:border-zinc-500 hover:bg-black'
-                }`}
+                  }`}
               >
-                {activeFilters.filter(f => SECONDARY_FILTERS.includes(f)).length > 0 
-                  ? `More (${activeFilters.filter(f => SECONDARY_FILTERS.includes(f)).length})` 
+                {activeFilters.filter(f => SECONDARY_FILTERS.includes(f)).length > 0
+                  ? `More (${activeFilters.filter(f => SECONDARY_FILTERS.includes(f)).length})`
                   : 'More'}
                 <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${dropdownOpen ? 'rotate-180' : ''}`} />
               </button>
@@ -747,7 +1138,7 @@ export default function App() {
 
           <AnimatePresence>
             {activeTab !== 'assistant' && (
-              <OmniSearch 
+              <OmniSearch
                 onExpand={() => {
                   setPendingQuery('');
                   setActiveTab('assistant');
@@ -773,7 +1164,7 @@ export default function App() {
           >
             <Lock className="w-4 h-4 text-zinc-400" />
             <span className="text-sm font-medium">{toastMessage}</span>
-            <button 
+            <button
               onClick={() => {
                 setToastMessage(null);
                 setShowLogin(true);
