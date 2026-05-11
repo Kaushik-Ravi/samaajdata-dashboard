@@ -19,3 +19,10 @@
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# === PostgreSQL raw data files (Docker volume) — NEVER COMMIT ===
+/pg_data
+
+# === Local dev artifacts ===
+/Temp
+old_app_diff.txt
