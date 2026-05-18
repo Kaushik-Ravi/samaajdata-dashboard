@@ -81,7 +81,7 @@ export default function ActionEngine({ selectedIssue, closeCard, ISSUE_CONFIG, o
         await navigator.share({
           files: [finalShareFile],
           title: 'Civic Impact Certificate',
-          text: `I just resolved a ${selectedIssue.threatLevel.toLowerCase()} ${selectedIssue.type.toLowerCase()} issue in my city. Join me on SamaajData!`,
+          text: `I just took civic action on a ${(selectedIssue.subcategory || selectedIssue.category || selectedIssue.type || '').toLowerCase()} issue in my city. Join me on SamaajData!`,
         });
       } else {
         // Fallback if browser doesn't support file sharing
@@ -101,8 +101,27 @@ export default function ActionEngine({ selectedIssue, closeCard, ISSUE_CONFIG, o
     }
   };
 
-  const IssueIcon = ISSUE_CONFIG[selectedIssue.type]?.icon || AlertTriangle;
-  const issueColor = ISSUE_CONFIG[selectedIssue.type]?.color || '#ffffff';
+  // Resolve icon & color from both old mock shape (type) and new API shape (category/subcategory)
+  const issueKey = selectedIssue.category || selectedIssue.type;
+  const IssueIcon = ISSUE_CONFIG[issueKey]?.icon || ISSUE_CONFIG[selectedIssue.subcategory]?.icon || AlertTriangle;
+  const issueColor = ISSUE_CONFIG[issueKey]?.color || ISSUE_CONFIG[selectedIssue.subcategory]?.color || '#ffffff';
+
+  // Parse location and metadata from the normalized API response
+  const loc = selectedIssue.location || null;           // { Ward Name, Zone, Sub Division, Location }
+  const meta = selectedIssue.metadata || null;          // { Electricity, Water, Gender Access, ... }
+  const partner = selectedIssue.partner || null;        // 'BBMP', 'SamaajData', etc.
+  const displayLabel = selectedIssue.subcategory || issueKey;
+
+  // Build human-readable location strings
+  const locationLine = loc
+    ? [loc['Location'], loc['Ward Name'], loc['Zone']].filter(Boolean).join(' · ')
+    : null;
+  const wardLine = loc
+    ? [loc['Ward No. '] && `Ward ${(loc['Ward No. '] || '').trim()}`, loc['Sub Division']].filter(Boolean).join(', ')
+    : null;
+
+  // Determine if we have a real image or need a category-branded placeholder
+  const hasImage = !!selectedIssue.img;
 
   return (
     <motion.div 
@@ -127,38 +146,75 @@ export default function ActionEngine({ selectedIssue, closeCard, ISSUE_CONFIG, o
         </div>
       )}
 
-      {/* Header Image (Animates to thumbnail when actionLevel is set) */}
+      {/* Header Image / Category Visual (Animates to thumbnail when actionLevel is set) */}
       <motion.div 
         layout
-        className={`relative w-full bg-zinc-800 shrink-0 overflow-hidden ${actionLevel ? 'h-28 rounded-b-3xl' : 'h-64'}`}
+        className={`relative w-full bg-zinc-900 shrink-0 overflow-hidden ${actionLevel ? 'h-28 rounded-b-3xl' : 'h-56'}`}
       >
-        <img src={selectedIssue.img} alt="Issue" className="w-full h-full object-cover" />
-        <div className="absolute inset-0 bg-gradient-to-t from-[#121212] via-black/40 to-black/20 opacity-90" />
+        {hasImage ? (
+          <img src={selectedIssue.img} alt="Issue" className="w-full h-full object-cover" />
+        ) : (
+          /* Category-branded gradient placeholder for datasets without photos */
+          <div 
+            className="w-full h-full flex flex-col items-center justify-center gap-3"
+            style={{ background: `radial-gradient(ellipse at 50% 0%, ${issueColor}25 0%, #09090b 70%)` }}
+          >
+            <IssueIcon className="w-16 h-16 opacity-15" style={{ color: issueColor }} />
+            {!actionLevel && (
+              <span className="text-[10px] font-bold tracking-widest text-zinc-700 uppercase">
+                {partner || 'Verified Dataset'} · No Photo On Record
+              </span>
+            )}
+          </div>
+        )}
+        <div className="absolute inset-0 bg-gradient-to-t from-[#121212] via-black/30 to-transparent" />
         <button 
           onClick={closeCard}
           className="absolute top-4 right-4 w-8 h-8 rounded-full bg-black/50 backdrop-blur-md flex items-center justify-center text-white hover:bg-black transition-colors z-10 shadow-lg shadow-black/20"
         >
           <X className="w-4 h-4" />
         </button>
-        <motion.div layout className={`absolute left-6 ${actionLevel ? 'bottom-4' : 'bottom-6'}`}>
+        <motion.div layout className={`absolute left-5 ${actionLevel ? 'bottom-3' : 'bottom-5'} flex items-center gap-2`}>
           <div 
             className="px-3 py-1.5 rounded-full text-xs font-bold text-white shadow-lg flex items-center gap-2 backdrop-blur-sm border border-white/10"
-            style={{ backgroundColor: `${issueColor}cc` }} // slight transparency for premium feel
+            style={{ backgroundColor: `${issueColor}cc` }}
           >
             <IssueIcon className="w-3.5 h-3.5" />
-            {selectedIssue.type}
+            {displayLabel}
           </div>
+          {partner && !actionLevel && (
+            <div className="px-2.5 py-1 rounded-full text-[10px] font-bold text-zinc-400 bg-black/60 backdrop-blur-sm border border-zinc-700/60">
+              {partner}
+            </div>
+          )}
         </motion.div>
       </motion.div>
 
       {/* Content */}
-      <motion.div layout className="p-6 flex flex-col gap-6">
+      <motion.div layout className="p-6 flex flex-col gap-5">
         <motion.div layout>
-          <motion.h2 layout className={`${actionLevel ? 'text-xl' : 'text-3xl'} font-semibold text-white tracking-tight mb-2 leading-snug`}>
-            {selectedIssue.heading}
+          <motion.h2 layout className={`${actionLevel ? 'text-xl' : 'text-2xl'} font-semibold text-white tracking-tight mb-1.5 leading-snug`}>
+            {selectedIssue.heading || `${displayLabel} Facility`}
           </motion.h2>
+
+          {/* Location Block — only shown before action level is selected */}
+          {!actionLevel && locationLine && (
+            <div className="flex flex-col gap-0.5 mb-2">
+              <div className="flex items-start gap-1.5">
+                <MapPin className="w-3.5 h-3.5 text-zinc-500 mt-0.5 shrink-0" />
+                <span className="text-xs text-zinc-400 leading-snug">{locationLine}</span>
+              </div>
+              {wardLine && (
+                <span className="text-[10px] text-zinc-600 font-medium ml-5">{wardLine}</span>
+              )}
+            </div>
+          )}
+
           <motion.p layout className="text-sm text-zinc-400 leading-relaxed">
-            {actionLevel ? "Resolution mode active." : selectedIssue.description}
+            {actionLevel
+              ? 'Resolution mode active.'
+              : selectedIssue.description || `A ${displayLabel.toLowerCase()} data point from verified civic datasets.`
+            }
           </motion.p>
         </motion.div>
 
@@ -170,73 +226,145 @@ export default function ActionEngine({ selectedIssue, closeCard, ISSUE_CONFIG, o
               exit={{ opacity: 0, height: 0, overflow: 'hidden', marginTop: -24 }}
               transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
             >
-              {/* Metadata Grid */}
-              <div className="grid grid-cols-2 gap-4 mb-8">
-                <div className="flex flex-col gap-1 p-4 rounded-2xl bg-zinc-900/40 border border-zinc-800">
-                  <span className="text-[10px] font-bold tracking-widest text-zinc-500 uppercase">Date Captured</span>
-                  <span className="text-sm font-medium text-zinc-200">{selectedIssue.date}</span>
+              {/* Metadata Grid — Date + Status + Live Attributes */}
+              <div className="flex flex-col gap-4 mb-8">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="flex flex-col gap-1 p-4 rounded-2xl bg-zinc-900/40 border border-zinc-800">
+                    <span className="text-[10px] font-bold tracking-widest text-zinc-500 uppercase">Date</span>
+                    <span className="text-sm font-medium text-zinc-200">{selectedIssue.date || 'On Record'}</span>
+                  </div>
+                  <div className="flex flex-col gap-1 p-4 rounded-2xl bg-zinc-900/40 border border-zinc-800">
+                    <span className="text-[10px] font-bold tracking-widest text-zinc-500 uppercase">Status</span>
+                    <span className={`text-sm font-bold ${
+                      selectedIssue.threatLevel === 'Critical' ? 'text-red-400' :
+                      selectedIssue.threatLevel === 'High' ? 'text-orange-400' :
+                      selectedIssue.threatLevel === 'Moderate' ? 'text-yellow-400' : 
+                      selectedIssue.threatLevel === 'Action' ? 'text-emerald-400' : 'text-emerald-400'
+                    }`}>
+                      {(!selectedIssue.threatLevel || selectedIssue.threatLevel === 'Low') ? 'Active Facility' : 
+                       selectedIssue.threatLevel === 'Action' ? 'Verified Action' : selectedIssue.threatLevel}
+                    </span>
+                  </div>
                 </div>
-                <div className="flex flex-col gap-1 p-4 rounded-2xl bg-zinc-900/40 border border-zinc-800">
-                  <span className="text-[10px] font-bold tracking-widest text-zinc-500 uppercase">Threat Level</span>
-                  <span className={`text-sm font-bold ${
-                    selectedIssue.threatLevel === 'Critical' ? 'text-red-400' :
-                    selectedIssue.threatLevel === 'High' ? 'text-orange-400' :
-                    selectedIssue.threatLevel === 'Moderate' ? 'text-yellow-400' : 'text-emerald-400'
-                  }`}>
-                    {selectedIssue.threatLevel}
+
+                {/* Coordinates + Partner Source */}
+                <div className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl bg-zinc-900/40 border border-zinc-800">
+                  <MapPin className="w-3.5 h-3.5 text-zinc-600 shrink-0" />
+                  <span className="text-[11px] font-mono text-zinc-500">
+                    {(selectedIssue.lat || 0).toFixed(5)}, {(selectedIssue.lng || 0).toFixed(5)}
                   </span>
+                  {partner && (
+                    <span className="ml-auto text-[10px] font-bold text-zinc-600 uppercase tracking-widest">{partner}</span>
+                  )}
                 </div>
               </div>
 
-              {/* Action Engine: Gamified Effort Levers with Google Tonal Tints */}
-              <div className="flex flex-col gap-4">
-                <h3 className="text-[11px] font-bold text-zinc-500 uppercase tracking-widest">How much time can you spare?</h3>
-                
-                {/* 10 Seconds - Emerald Tint */}
-                <button 
-                  onClick={() => setActionLevel('10s')}
-                  className="group relative w-full flex items-center justify-between p-5 rounded-2xl bg-emerald-500/5 hover:bg-emerald-500/10 border border-emerald-500/10 hover:border-emerald-500/30 transition-all text-left overflow-hidden"
-                >
-                  <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/0 via-emerald-500/5 to-emerald-500/0 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-700 ease-in-out" />
-                  <div className="relative z-10">
-                    <div className="text-base font-bold text-emerald-100 mb-0.5">10 Seconds</div>
-                    <div className="text-xs text-emerald-500/80 font-medium">Verify issue status</div>
-                  </div>
-                  <div className="relative z-10 px-3 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 text-xs font-black tracking-wide border border-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.15)]">
-                    +2 XP
-                  </div>
-                </button>
-                
-                {/* 2 Minutes - Indigo Tint */}
-                <button 
-                  onClick={() => setActionLevel('2m')}
-                  className="group relative w-full flex items-center justify-between p-5 rounded-2xl bg-indigo-500/5 hover:bg-indigo-500/10 border border-indigo-500/10 hover:border-indigo-500/30 transition-all text-left overflow-hidden"
-                >
-                  <div className="absolute inset-0 bg-gradient-to-r from-indigo-500/0 via-indigo-500/5 to-indigo-500/0 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-700 ease-in-out" />
-                  <div className="relative z-10">
-                    <div className="text-base font-bold text-indigo-100 mb-0.5">2 Minutes</div>
-                    <div className="text-xs text-indigo-500/80 font-medium">Escalate officially</div>
-                  </div>
-                  <div className="relative z-10 px-3 py-1.5 rounded-lg bg-indigo-500/20 text-indigo-400 text-xs font-black tracking-wide border border-indigo-500/20 shadow-[0_0_15px_rgba(99,102,241,0.15)]">
-                    +10 XP
-                  </div>
-                </button>
+              {selectedIssue.type === 'Action' ? (
+                /* --- CLEAN CIVIC ACTION DETAILS (Source Data Only — No LLM) --- */
+                <div className="flex flex-col gap-4">
+                  <h3 className="text-[11px] font-bold text-zinc-500 uppercase tracking-widest">Civic Action Details</h3>
 
-                {/* Heavy Lifter - Amber Tint */}
-                <button 
-                  onClick={() => setActionLevel('heavy')}
-                  className="group relative w-full flex items-center justify-between p-5 rounded-2xl bg-amber-500/5 hover:bg-amber-500/10 border border-amber-500/10 hover:border-amber-500/30 transition-all text-left overflow-hidden"
-                >
-                  <div className="absolute inset-0 bg-gradient-to-r from-amber-500/0 via-amber-500/5 to-amber-500/0 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-700 ease-in-out" />
-                  <div className="relative z-10">
-                    <div className="text-base font-bold text-amber-100 mb-0.5">Heavy Lifter</div>
-                    <div className="text-xs text-amber-500/80 font-medium">Pipeline resolution</div>
+                  <div className="grid grid-cols-2 gap-3">
+                    {/* Classification Badge — ASSET / CHALLENGE / MOMENTUM */}
+                    {(() => {
+                      const cls = meta?.['Classification'] || 'CHALLENGE';
+                      const cfgMap = {
+                        ASSET:     { label: 'ASSET',     color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/25', spot: 'bg-emerald-500' },
+                        MOMENTUM:  { label: 'MOMENTUM',  color: 'text-blue-400',    bg: 'bg-blue-500/10 border-blue-500/25',    spot: 'bg-blue-500' },
+                        CHALLENGE: { label: 'CHALLENGE', color: 'text-amber-400',   bg: 'bg-amber-500/10 border-amber-500/25',  spot: 'bg-amber-500' },
+                      };
+                      const cfg = cfgMap[cls] || cfgMap.CHALLENGE;
+                      return (
+                        <div className={`col-span-1 p-4 rounded-2xl border flex flex-col gap-1.5 relative overflow-hidden ${cfg.bg}`}>
+                          <div className={`absolute top-0 right-0 w-12 h-12 rounded-bl-full opacity-20 ${cfg.spot}`} />
+                          <span className="text-[10px] font-bold tracking-widest text-zinc-500 uppercase z-10">Classification</span>
+                          <span className={`text-sm font-black z-10 tracking-wide ${cfg.color}`}>{cfg.label}</span>
+                        </div>
+                      );
+                    })()}
+
+                    {/* Action Type */}
+                    <div className="col-span-1 p-4 rounded-2xl bg-zinc-900/60 border border-zinc-800 flex flex-col gap-1.5">
+                      <span className="text-[10px] font-bold tracking-widest text-zinc-500 uppercase">Action Type</span>
+                      <span className="text-xs font-semibold text-zinc-200 leading-snug">{meta?.['Action Type'] || '—'}</span>
+                    </div>
                   </div>
-                  <div className="relative z-10 px-3 py-1.5 rounded-lg bg-amber-500/20 text-amber-400 text-xs font-black tracking-wide border border-amber-500/20 shadow-[0_0_15px_rgba(245,158,11,0.15)]">
-                    +30 XP
+
+                  {/* Action Detail Rows */}
+                  <div className="flex flex-col gap-0 p-4 rounded-2xl bg-zinc-900/60 border border-zinc-800">
+                    <span className="text-[10px] font-bold tracking-widest text-zinc-500 uppercase mb-2">Action Details</span>
+                    <div className="flex items-center justify-between py-2 border-b border-zinc-800/60">
+                      <span className="text-xs text-zinc-400">Civic Domain</span>
+                      <span className="text-xs font-semibold text-zinc-200">{meta?.['Action Category'] || '—'}</span>
+                    </div>
+                    <div className="flex items-center justify-between py-2">
+                      <span className="text-xs text-zinc-400">Hours Invested</span>
+                      <span className="text-xs font-black text-emerald-400">
+                        {meta?.['Hours Invested'] ? `${meta['Hours Invested']} hr${meta['Hours Invested'] !== 1 ? 's' : ''}` : '< 1 hr'}
+                      </span>
+                    </div>
                   </div>
-                </button>
-              </div>
+
+                  <button
+                    onClick={() => completeAction(25)}
+                    className="mt-1 group relative w-full flex items-center justify-center p-4 rounded-2xl bg-emerald-500 hover:bg-emerald-400 transition-all text-center overflow-hidden"
+                  >
+                    <div className="relative z-10 flex items-center gap-2 text-sm font-bold text-zinc-900">
+                      <CheckCircle2 className="w-4 h-4" /> Endorse & Validate Action
+                    </div>
+                  </button>
+                </div>
+              ) : (
+                /* Action Engine: Gamified Effort Levers with Google Tonal Tints */
+                <div className="flex flex-col gap-4">
+                  <h3 className="text-[11px] font-bold text-zinc-500 uppercase tracking-widest">How much time can you spare?</h3>
+                  
+                  {/* 10 Seconds - Emerald Tint */}
+                  <button 
+                    onClick={() => setActionLevel('10s')}
+                    className="group relative w-full flex items-center justify-between p-5 rounded-2xl bg-emerald-500/5 hover:bg-emerald-500/10 border border-emerald-500/10 hover:border-emerald-500/30 transition-all text-left overflow-hidden"
+                  >
+                    <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/0 via-emerald-500/5 to-emerald-500/0 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-700 ease-in-out" />
+                    <div className="relative z-10">
+                      <div className="text-base font-bold text-emerald-100 mb-0.5">10 Seconds</div>
+                      <div className="text-xs text-emerald-500/80 font-medium">Verify issue status</div>
+                    </div>
+                    <div className="relative z-10 px-3 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 text-xs font-black tracking-wide border border-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.15)]">
+                      +2 XP
+                    </div>
+                  </button>
+                  
+                  {/* 2 Minutes - Indigo Tint */}
+                  <button 
+                    onClick={() => setActionLevel('2m')}
+                    className="group relative w-full flex items-center justify-between p-5 rounded-2xl bg-indigo-500/5 hover:bg-indigo-500/10 border border-indigo-500/10 hover:border-indigo-500/30 transition-all text-left overflow-hidden"
+                  >
+                    <div className="absolute inset-0 bg-gradient-to-r from-indigo-500/0 via-indigo-500/5 to-indigo-500/0 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-700 ease-in-out" />
+                    <div className="relative z-10">
+                      <div className="text-base font-bold text-indigo-100 mb-0.5">2 Minutes</div>
+                      <div className="text-xs text-indigo-500/80 font-medium">Escalate officially</div>
+                    </div>
+                    <div className="relative z-10 px-3 py-1.5 rounded-lg bg-indigo-500/20 text-indigo-400 text-xs font-black tracking-wide border border-indigo-500/20 shadow-[0_0_15px_rgba(99,102,241,0.15)]">
+                      +10 XP
+                    </div>
+                  </button>
+
+                  {/* Heavy Lifter - Amber Tint */}
+                  <button 
+                    onClick={() => setActionLevel('heavy')}
+                    className="group relative w-full flex items-center justify-between p-5 rounded-2xl bg-amber-500/5 hover:bg-amber-500/10 border border-amber-500/10 hover:border-amber-500/30 transition-all text-left overflow-hidden"
+                  >
+                    <div className="absolute inset-0 bg-gradient-to-r from-amber-500/0 via-amber-500/5 to-amber-500/0 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-700 ease-in-out" />
+                    <div className="relative z-10">
+                      <div className="text-base font-bold text-amber-100 mb-0.5">Heavy Lifter</div>
+                      <div className="text-xs text-amber-500/80 font-medium">Pipeline resolution</div>
+                    </div>
+                    <div className="relative z-10 px-3 py-1.5 rounded-lg bg-amber-500/20 text-amber-400 text-xs font-black tracking-wide border border-amber-500/20 shadow-[0_0_15px_rgba(245,158,11,0.15)]">
+                      +30 XP
+                    </div>
+                  </button>
+                </div>
+              )}
             </motion.div>
           )}
 

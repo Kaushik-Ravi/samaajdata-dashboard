@@ -26,3 +26,8 @@ yarn-error.log*
 # === Local dev artifacts ===
 /Temp
 old_app_diff.txt
+
+# === Sensitive / Internal files — NEVER COMMIT ===
+groq.md
+AGENTS.md
+null

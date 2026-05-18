@@ -1,15 +1,15 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Users, Lock, ShieldCheck, MessageCircle, Send, Radio } from 'lucide-react';
+import { Users, ShieldCheck } from 'lucide-react';
+
+
+// Deterministic avatar colors — same palette as App.js NinjaAvatar
+const NINJA_AVATAR_COLORS = ['#10b981', '#3b82f6', '#8b5cf6', '#f59e0b', '#ec4899', '#14b8a6', '#f97316', '#6366f1'];
+const getNinjaColor = (id) => NINJA_AVATAR_COLORS[Number(id) % NINJA_AVATAR_COLORS.length];
+const getNinjaInitial = (name) => name ? name.trim()[0].toUpperCase() : '?';
+
 
 export default function NinjaTaskforce({ isLoggedIn, setShowLogin, activeNinjas }) {
-  // Mock communities tailored to specific localized contexts per user request
-  const COMMUNITIES = [
-    { id: 1, platform: 'WhatsApp', name: 'Water | Jayanagar Community', members: '243 online', icon: MessageCircle, color: '#10b981', bg: 'bg-emerald-500/10' },
-    { id: 2, platform: 'Telegram', name: 'Safety Patrol | Koramangala', members: '1,204 members', icon: Send, color: '#0ea5e9', bg: 'bg-sky-500/10' },
-    { id: 3, platform: 'Reddit', name: 'Builders Space | Bangalore', members: 'Top 5% Civic Forum', icon: Radio, color: '#f97316', bg: 'bg-orange-500/10' },
-  ];
-
   return (
     <motion.div 
       key="tab-people"
@@ -53,19 +53,21 @@ export default function NinjaTaskforce({ isLoggedIn, setShowLogin, activeNinjas 
                     key={ninja.id}
                     className="flex items-center gap-4 p-4 rounded-2xl bg-zinc-900/40 border border-zinc-800/80 hover:bg-zinc-800/60 transition-colors"
                   >
-                    <div className="relative shrink-0">
-                      <img src={ninja.img} alt={ninja.name} className="w-12 h-12 rounded-full border-2 border-zinc-800 object-cover" />
-                      <div className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-emerald-500 rounded-full border-2 border-[#121212] shadow-[0_0_8px_rgba(16,185,129,0.5)]"></div>
+                    <div
+                      className="w-12 h-12 rounded-full flex items-center justify-center font-bold text-white shrink-0 select-none text-base"
+                      style={{ backgroundColor: getNinjaColor(ninja.id) }}
+                    >
+                      {getNinjaInitial(ninja.name)}
                     </div>
                     <div className="flex flex-col flex-1 min-w-0">
                       <div className="flex items-center justify-between gap-2">
-                        <span className="text-sm font-semibold text-zinc-100 truncate">{ninja.name}</span>
-                        <span className="text-xs font-black text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20 shrink-0 shadow-sm">
-                          {ninja.xp} XP
+                        <span className="text-sm font-semibold text-zinc-100 truncate">{ninja.name || `Agent #${String(ninja.id).slice(-4)}`}</span>
+                        <span className="text-[10px] font-bold text-zinc-500 bg-zinc-800/80 px-2 py-0.5 rounded border border-zinc-700/50 shrink-0 uppercase tracking-widest">
+                          Field Agent
                         </span>
                       </div>
-                      <span className="text-xs text-zinc-400 truncate mt-0.5 font-medium tracking-wide">
-                        {ninja.specialty} Specialist
+                      <span className="text-xs text-zinc-500 truncate mt-0.5 font-medium tracking-wide">
+                        {ninja.ward || 'Bengaluru'}
                       </span>
                     </div>
                   </motion.div>
@@ -79,35 +81,6 @@ export default function NinjaTaskforce({ isLoggedIn, setShowLogin, activeNinjas 
             </div>
           </div>
 
-          {/* Sector Comms (Fixed Footer) */}
-          <div className="shrink-0 p-6 pt-5 border-t border-zinc-800/80 bg-[#121212]/95 backdrop-blur-xl relative z-10 shadow-[0_-20px_40px_rgba(0,0,0,0.4)]">
-            <div className="flex flex-col gap-3">
-              <h3 className="text-[10px] font-bold tracking-widest text-zinc-500 uppercase flex items-center gap-2">
-                <Radio className="w-3 h-3 text-zinc-400" /> Sector Comms
-              </h3>
-              <div className="flex flex-col gap-3">
-                {COMMUNITIES.map((comm) => (
-                  <button 
-                    key={comm.id}
-                    className="group relative w-full flex items-center justify-between p-4 rounded-2xl bg-zinc-900/50 border border-zinc-800 hover:border-zinc-700 transition-all text-left overflow-hidden"
-                  >
-                    <div className="flex items-center gap-4 relative z-10">
-                      <div className={`w-10 h-10 rounded-full ${comm.bg} flex items-center justify-center shrink-0`}>
-                         <comm.icon className="w-5 h-5" style={{ color: comm.color }} />
-                      </div>
-                      <div className="flex flex-col">
-                        <span className="text-sm font-semibold text-zinc-200 group-hover:text-white transition-colors">{comm.name}</span>
-                        <span className="text-xs text-zinc-500 mt-0.5">{comm.members}</span>
-                      </div>
-                    </div>
-                    <div className="relative z-10 px-3 py-1.5 rounded-full bg-zinc-800 text-zinc-300 text-[10px] font-bold tracking-wider group-hover:bg-zinc-700 transition-colors">
-                      JOIN
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
         </div>
 
         {/* Floating Modal Layer (The Positive FOMO Gate) */}
@@ -125,7 +98,6 @@ export default function NinjaTaskforce({ isLoggedIn, setShowLogin, activeNinjas 
                 transition={{ type: "spring", stiffness: 300, damping: 25, delay: 0.1 }}
                 className="w-full max-w-sm bg-zinc-900/80 backdrop-blur-2xl border border-zinc-700/60 rounded-[32px] p-8 text-center shadow-[0_20px_60px_rgba(0,0,0,0.8)] relative overflow-hidden"
               >
-                {/* Subtle internal gradient for premium feel */}
                 <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/10 to-sky-500/5 pointer-events-none" />
                 
                 <div className="relative z-10 flex flex-col items-center">

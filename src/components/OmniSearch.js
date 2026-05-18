@@ -34,7 +34,7 @@ export default function OmniSearch({ onExpand, onSend }) {
     <motion.div 
       initial={{ y: 50, x: "-50%", opacity: 0 }}
       animate={{ y: 0, x: "-50%", opacity: 1 }}
-      className="absolute bottom-12 left-1/2 w-full max-w-2xl z-[1000]"
+      className="absolute bottom-12 left-1/2 w-full max-w-2xl z-[300]"
     >
       <div className="relative group flex items-center bg-[#121212]/90 backdrop-blur-3xl border border-zinc-700/60 hover:border-zinc-500/80 rounded-[32px] p-3 pl-8 shadow-[0_20px_40px_rgba(0,0,0,0.6)] transition-all duration-300">
         <Sparkles className="w-6 h-6 text-emerald-400 shrink-0" />
